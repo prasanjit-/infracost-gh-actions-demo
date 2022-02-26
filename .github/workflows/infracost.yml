@@ -1,0 +1,62 @@
+on: [pull_request]
+jobs:
+  infracost:
+    runs-on: ubuntu-latest
+    env:
+      working-directory: terraform
+
+    name: Run Infracost
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      # Run Terraform
+      - name: Install terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_wrapper: false # This is recommended so the `terraform show` command outputs valid JSON
+
+      - name: Terraform init
+        run: terraform init
+        working-directory: ${{ env.working-directory }}
+
+      - name: Terraform plan
+        run: terraform plan -out tfplan.binary
+        working-directory: ${{ env.working-directory }}
+
+      - name: Terraform show
+        run: terraform show -json tfplan.binary > plan.json
+        working-directory: ${{ env.working-directory }}
+
+      # Run Infracost
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v1
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Infracost JSON
+        run: infracost breakdown --path plan.json --format json --usage-file infracost-usage.yml --out-file /tmp/infracost.json
+        working-directory: ${{ env.working-directory }}
+
+      - name: Post Infracost comment
+        uses: infracost/actions/comment@v1
+        with:
+          path: /tmp/infracost.json
+          behavior: update
+
+      # Run Open Policy Agent
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v1
+
+      - name: Run OPA
+        run: opa eval --input /tmp/infracost.json -d cost-policy.rego --format pretty "data.infracost.deny" | tee /tmp/opa.out
+
+      - name: Check Policies
+        run: |
+          denyReasons=$(</tmp/opa.out)
+          if [ "$denyReasons" != "[]" ]; then
+            echo -e "::error::Cost policy check failed, please check with Alistair Scott before proceeding with the change:\n$denyReasons"
+            exit 1
+          else
+            echo "::info::Cost policy check passed."
+          fi
