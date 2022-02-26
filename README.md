@@ -1,4 +1,4 @@
-# Infracost GitHub Actions Demo
+# Infracost GitHub Actions Demo #
 
 See [this pull request](https://github.com/prasanjit-/infracost-gh-actions-demo/pull/1) for the demonstration.
 
